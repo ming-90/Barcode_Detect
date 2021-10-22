@@ -207,6 +207,7 @@ namespace BarcodeDetector
         {
             Mat returnImg = new Mat();
             Cv2.Resize(src, returnImg, new OpenCvSharp.Size(504, 960));
+            string test;
             return returnImg;
         }
 
