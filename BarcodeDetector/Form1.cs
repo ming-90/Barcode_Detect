@@ -23,12 +23,14 @@ namespace BarcodeDetector
 {
     public partial class Form1 : Form
     {
-        private Mat originalImg;
+        private Mat squareImg;
         private Mat Loadimg;
+        private Mat origineimg;
         private string sImagePath;
         private VideoCapture capture;
         private Mat video = new Mat();
         private BarcodeReader barcodeReader = new BarcodeReader { AutoRotate = true, TryInverted = true };
+        private setting set = new setting();
 
         [DllImport("kernel32")]
         private static extern long WritePrivateProfileString(string section, string key, string val, string filePath);
@@ -43,9 +45,7 @@ namespace BarcodeDetector
             //초기 이미지 불러서(저장된 경로) 출력
             if(sImagePath != "")
             {
-                Loadimg = Cv2.ImRead(sImagePath);
-                originalImg = Cv2.ImRead(sImagePath); 
-                CaptureImage.Image = OpenCvSharp.Extensions.BitmapConverter.ToBitmap(Loadimg);
+                //Loadimg = Cv2.ImRead(sImagePath);
             }
         }
 
@@ -53,6 +53,7 @@ namespace BarcodeDetector
         {
             //ini 파일 내용 읽고 초기 셋팅
             StringBuilder RESIZE = new StringBuilder(255);
+            StringBuilder BLUR = new StringBuilder(255);
             StringBuilder CONTRACT = new StringBuilder(255);
             StringBuilder MOPHOLOGY = new StringBuilder(255);
             StringBuilder OTG = new StringBuilder(255);
@@ -62,22 +63,22 @@ namespace BarcodeDetector
             StringBuilder PADDING = new StringBuilder(255);
 
             GetPrivateProfileString("SETTING", "RESIZE", "", RESIZE, 255, Application.StartupPath + @"\setting.ini");
+            GetPrivateProfileString("SETTING", "BLUR", "", BLUR, 255, Application.StartupPath + @"\setting.ini");
             GetPrivateProfileString("SETTING", "CONTRACT", "", CONTRACT, 255, Application.StartupPath + @"\setting.ini");
             GetPrivateProfileString("SETTING", "MOPHOLOGY", "", MOPHOLOGY, 255, Application.StartupPath + @"\setting.ini");
             GetPrivateProfileString("SETTING", "OTG", "", OTG, 255, Application.StartupPath + @"\setting.ini");
             GetPrivateProfileString("SETTING", "ERODE", "", ERODE, 255, Application.StartupPath + @"\setting.ini");
             GetPrivateProfileString("SETTING", "BOXSIZE", "", BOXSIZE, 255, Application.StartupPath + @"\setting.ini");
             GetPrivateProfileString("SETTING", "PADDING", "", PADDING, 255, Application.StartupPath + @"\setting.ini");
-
             GetPrivateProfileString("SETTING", "IMAGEPATH", "", IMAGEPATH, 255, Application.StartupPath + @"\setting.ini");
 
             txtContrast.Text = CONTRACT.ToString();
+            txtBlur1.Text = BLUR.ToString();
             txtMophology.Text = MOPHOLOGY.ToString();
             txtOtg.Text = OTG.ToString();
             txtErode.Text = ERODE.ToString();
             txtSize.Text = BOXSIZE.ToString();
             txtPadding.Text = PADDING.ToString();
-
             sImagePath = IMAGEPATH.ToString();
         }
 
@@ -86,14 +87,13 @@ namespace BarcodeDetector
         private void btnLearn_Click(object sender, EventArgs e)
         {
             Stopwatch stopwatch = new Stopwatch();
-            Loadimg = Cv2.ImRead(sImagePath);
 
             //stop watch
             lblTime.Text = "0 초";
             stopwatch.Start();
 
-            OpenCvSharp.Point[][] contours = barcodeDetect(Loadimg);
-            learningBoxsize(Loadimg, contours);
+            OpenCvSharp.Point[][] contours = barcodeDetect(origineimg);
+            learningBoxsize(origineimg, contours);
 
             stopwatch.Stop();
             lblTime.Text = String.Format("{0:0.0000}", (double)stopwatch.ElapsedMilliseconds / 1000) + " 초";
@@ -102,116 +102,89 @@ namespace BarcodeDetector
         //웹캠
         public void btnWebcam_Click(object sender, EventArgs e)
         {
-            Loadimg = Cv2.ImRead(sImagePath);
-            capture.Open(0);
-            capture.FrameWidth = 640;
+            lblTime.Text = "0 초";
+            capture.Open(1);
+            capture.FrameWidth = 1920;
+            capture.FrameHeight = 1080;
             timer1.Enabled = true;
-            insertText("웹캠 시작");
         }
         private void btnStop_Click(object sender, EventArgs e)
         {
             timer1.Enabled = false;
-            insertText("웹캠 중지");
         }
         //웹캠 타이머
         private void timer1_Tick(object sender, EventArgs e)
         {
-            capture.Read(video);
-            CaptureImage.Image = OpenCvSharp.Extensions.BitmapConverter.ToBitmap(resizeCanvas(video));
-            Loadimg = resizeCanvas(video);
-            OpenCvSharp.Point[][] contours = barcodeDetect(Loadimg);
-        }
-
-        //이미지 불러오기 
-        private void LoadImage_Click(object sender, EventArgs e)
-        {
-            OpenFileDialog dlg = new OpenFileDialog();
-            if (dlg.ShowDialog() == DialogResult.OK)
-            {
-                sImagePath = dlg.FileName;
-                Loadimg = Cv2.ImRead(dlg.FileName);
-                originalImg = Loadimg;
-            }
-
-            WritePrivateProfileString("SETTING", "IMAGEPATH", dlg.FileName, Application.StartupPath + @"\setting.ini");
-            CaptureImage.Image = OpenCvSharp.Extensions.BitmapConverter.ToBitmap(Loadimg);
-        }
-        //디텍팅 시작
-        private void detectStart_Click(object sender, EventArgs e)
-        {
-            Loadimg = Cv2.ImRead(sImagePath);
             Stopwatch stopwatch = new Stopwatch();
             //stop watch
             stopwatch.Start();
 
+            capture.Read(video);
+            Loadimg = set.Rotate(video,180);
+            origineimg = set.Rotate(video,180);
             OpenCvSharp.Point[][] contours = barcodeDetect(Loadimg);
-            int totalContours = contours.Count();
             if (chkDecode.Checked)
             {
-                List<OpenCvSharp.Point[]> contourList1 = new List<OpenCvSharp.Point[]>();
-                List<OpenCvSharp.Point[]> contourList2 = new List<OpenCvSharp.Point[]>();
-                List<OpenCvSharp.Point[]> contourList3 = new List<OpenCvSharp.Point[]>();
-                OpenCvSharp.Point[][] one = new ArraySegment<OpenCvSharp.Point[]>(contours, 0, totalContours / 2).ToArray();
-                OpenCvSharp.Point[][] two = new ArraySegment<OpenCvSharp.Point[]>(contours, totalContours / 2, totalContours/2).ToArray();
-                Thread thread1 = new Thread(() => contourList1 = decodeBarcode(Loadimg, one));
-                thread1.Start();
-                Thread thread2 = new Thread(() => contourList2 = decodeBarcode(Loadimg, two));
-                thread2.Start();
+                Model con1 = new Model();
+                con1 = decodeBarcode(Loadimg, contours);
 
-                thread1.Join();
-                thread2.Join();
-                contourList1.AddRange(contourList2);
-                contourList1.AddRange(contourList3);
-                drawSqure(originalImg, contourList1.ToArray());
+                drawSqure(Loadimg, con1.Contour.ToArray());
+                insertText(con1.Barcode, txtBarcode);
+                lblTime.Text = (con1.searchQty).ToString();
             }
             else
             {
                 drawSqure(Loadimg, contours);
             }
-
             stopwatch.Stop();
-            lblTime.Text = (stopwatch.ElapsedMilliseconds / 1000).ToString() + "ms";
-            lblTime.Text = String.Format("{0:0.0000}", (double)stopwatch.ElapsedMilliseconds / 1000) + " 초";
+            string time = String.Format("{0:0.0000}", (double)stopwatch.ElapsedMilliseconds / 1000) + " 초" + Environment.NewLine;
+            insertText(time, txtTime);
+        }
+
+        //이미지 캡처 
+        private void LoadImage_Click(object sender, EventArgs e)
+        {
+            Cv2.ImWrite(@"E:\Project\연구과제\Barcode_Detect\BarcodeDetector\testImg\loadImg.jpg", Loadimg);
+            Cv2.ImWrite(@"E:\Project\연구과제\Barcode_Detect\BarcodeDetector\testImg\squarImg.jpg", squareImg);
+        }
+        //디텍팅 시작
+        private void detectStart_Click(object sender, EventArgs e)
+        {
+            //Stopwatch stopwatch = new Stopwatch();
+            ////stop watch
+            //stopwatch.Start();
+
+            //OpenCvSharp.Point[][] contours = barcodeDetect(Loadimg);
+            //int totalContours = contours.Count();
+            //if (chkDecode.Checked)
+            //{
+            //    List<OpenCvSharp.Point[]> contourList1 = new List<OpenCvSharp.Point[]>();
+            //    List<OpenCvSharp.Point[]> contourList2 = new List<OpenCvSharp.Point[]>();
+            //    List<OpenCvSharp.Point[]> contourList3 = new List<OpenCvSharp.Point[]>();
+            //    OpenCvSharp.Point[][] one = new ArraySegment<OpenCvSharp.Point[]>(contours, 0, totalContours / 2).ToArray();
+            //    OpenCvSharp.Point[][] two = new ArraySegment<OpenCvSharp.Point[]>(contours, totalContours / 2, totalContours/2).ToArray();
+            //    Thread thread1 = new Thread(() => contourList1 = decodeBarcode(Loadimg, one));
+            //    thread1.Start();
+            //    Thread thread2 = new Thread(() => contourList2 = decodeBarcode(Loadimg, two));
+            //    thread2.Start();
+
+            //    thread1.Join();
+            //    thread2.Join();
+            //    contourList1.AddRange(contourList2);
+            //    contourList1.AddRange(contourList3);
+            //    drawSqure(Loadimg, contourList1.ToArray());
+            //}
+            //else
+            //{
+            //    drawSqure(Loadimg, contours);
+            //}
+
+            //stopwatch.Stop();
+            //lblTime.Text = (stopwatch.ElapsedMilliseconds / 1000).ToString() + "ms";
+            //lblTime.Text = String.Format("{0:0.0000}", (double)stopwatch.ElapsedMilliseconds / 1000) + " 초";
         }
 
         #endregion ==== 버튼 이벤트 ====
-
-        #region ==== 세팅 함수 ====
-        //리사이즈
-        private Mat resizeImage(Mat src, double ratio)
-        {
-            int resizeWidth = (int)(Loadimg.Width * ratio);
-            int resizeHeight = (int)(Loadimg.Height * ratio);
-            Mat returnImg = new Mat();
-            Cv2.Resize(src, returnImg, new OpenCvSharp.Size(resizeWidth, resizeHeight));
-            return returnImg;
-        }
-
-        //바코드 리사이즈
-        private Mat resizeBarcode(Mat src)
-        {
-            int resizeWidth = (int)(200);
-            int resizeHeight = (int)(200);
-            Mat returnImg = new Mat();
-            Cv2.Resize(src, returnImg, new OpenCvSharp.Size(resizeWidth, resizeHeight));
-            return returnImg;
-        }
-        private Mat resizeCanvas(Mat src)
-        {
-            Mat returnImg = new Mat();
-            Cv2.Resize(src, returnImg, new OpenCvSharp.Size(231, 309 ));
-            return returnImg;
-        }
-
-        private Mat resizeBigCanvas(Mat src)
-        {
-            Mat returnImg = new Mat();
-            Cv2.Resize(src, returnImg, new OpenCvSharp.Size(504, 960));
-            string test;
-            return returnImg;
-        }
-
-        #endregion ==== 세팅 함수 ====
 
         #region ==== 바코드 위치 찾기 ====
         private OpenCvSharp.Point[][] barcodeDetect(Mat img)
@@ -222,6 +195,7 @@ namespace BarcodeDetector
             {
                 //ini 파일에 설정값 저장
                 WritePrivateProfileString("SETTING", "CONTRACT", txtContrast.Text, Application.StartupPath + @"\setting.ini");
+                WritePrivateProfileString("SETTING", "BLUR", txtBlur1.Text, Application.StartupPath + @"\setting.ini");
                 WritePrivateProfileString("SETTING", "MOPHOLOGY", txtMophology.Text, Application.StartupPath + @"\setting.ini");
                 WritePrivateProfileString("SETTING", "OTG", txtOtg.Text, Application.StartupPath + @"\setting.ini");
                 WritePrivateProfileString("SETTING", "ERODE", txtErode.Text, Application.StartupPath + @"\setting.ini");
@@ -234,12 +208,10 @@ namespace BarcodeDetector
                 //그레이스케일
                 Mat gray = new Mat();
                 Cv2.CvtColor(resizeImg, gray, ColorConversionCodes.BGR2GRAY);
-                CaptureImage2.Image = OpenCvSharp.Extensions.BitmapConverter.ToBitmap(resizeCanvas(gray));
 
                 //명암 조절
                 string getContrast = txtContrast.Text;
                 gray = gray + Convert.ToInt32(getContrast);
-                CaptureImage3.Image = OpenCvSharp.Extensions.BitmapConverter.ToBitmap(resizeCanvas(gray));
 
                 //가장자리 검출
                 Mat gradX = new Mat();
@@ -253,7 +225,6 @@ namespace BarcodeDetector
                 Cv2.Subtract(gradX, gradY, gradient);
                 // - 스케일 변환
                 Cv2.ConvertScaleAbs(gradient, gradient);
-                CaptureImage4.Image = OpenCvSharp.Extensions.BitmapConverter.ToBitmap(resizeCanvas(gradient));
 
                 //가우시안 블러
                 Mat blur = new Mat();
@@ -266,7 +237,7 @@ namespace BarcodeDetector
                 Mat binery = new Mat();
                 int otg = Convert.ToInt32(txtOtg.Text);
                 Cv2.Threshold(blur, binery, otg, 255, ThresholdTypes.Binary);
-                CaptureImage5.Image = OpenCvSharp.Extensions.BitmapConverter.ToBitmap(resizeCanvas(binery));
+                CaptureImage5.Image = OpenCvSharp.Extensions.BitmapConverter.ToBitmap(set.resizeCanvas(binery));
 
                 //모폴로지 연산
                 Mat Morphology = new Mat();
@@ -275,7 +246,7 @@ namespace BarcodeDetector
                 int second = Convert.ToInt32(txtMo[1]);
                 Mat kenel = Cv2.GetStructuringElement(MorphShapes.Rect, new OpenCvSharp.Size(first, second));
                 Cv2.MorphologyEx(binery, Morphology, MorphTypes.Close, kenel, iterations: 1);
-                CaptureImage6.Image = OpenCvSharp.Extensions.BitmapConverter.ToBitmap(resizeCanvas(Morphology));
+                CaptureImage6.Image = OpenCvSharp.Extensions.BitmapConverter.ToBitmap(set.resizeCanvas(Morphology));
 
                 //팽창,침식(노이즈 제거 위함)
                 Mat closed = new Mat();
@@ -284,7 +255,7 @@ namespace BarcodeDetector
                 int Esecond = Convert.ToInt32(literode[1]);
                 Cv2.Erode(Morphology, closed, null, null, Esecond);
                 Cv2.Dilate(closed, closed, null, null, Efirst);
-                CaptureImage7.Image = OpenCvSharp.Extensions.BitmapConverter.ToBitmap(resizeCanvas(closed));
+                CaptureImage7.Image = OpenCvSharp.Extensions.BitmapConverter.ToBitmap(set.resizeCanvas(closed));
 
                 HierarchyIndex[] hierarchy;
 
@@ -297,67 +268,84 @@ namespace BarcodeDetector
             }
             return contours;
         }
+        //박스 그리기
         private void drawSqure(Mat img, OpenCvSharp.Point[][] contours)
         {
-
+            int padding = Convert.ToInt32(txtPadding.Text);
+            int halfPadding = padding / 2;
             foreach (OpenCvSharp.Point[] s in contours)
             {
                 Rect rect = Cv2.BoundingRect(s);
-                Cv2.Rectangle(img, new OpenCvSharp.Point(rect.X, rect.Y), new OpenCvSharp.Point(rect.X + rect.Width, rect.Y + rect.Height), Scalar.Red, 2, LineTypes.AntiAlias);
+                Cv2.Rectangle(img, new OpenCvSharp.Point(rect.X - padding, rect.Y - padding), 
+                    new OpenCvSharp.Point(rect.X + rect.Width + halfPadding, rect.Y + rect.Height + halfPadding), Scalar.Red, 2, LineTypes.AntiAlias);
             }
-            CaptureImage8.Image = OpenCvSharp.Extensions.BitmapConverter.ToBitmap(resizeBigCanvas(img));
-            Cv2.ImWrite(@"E:\Project\연구과제\BarcodeDetector\BarcodeDetector\testImg\last.jpg", img);
+            CaptureImage8.Image = OpenCvSharp.Extensions.BitmapConverter.ToBitmap(set.resizeBigCanvas(img));
+            squareImg = img;
         }
 
         //Rect 들을 받아서 디코드(Xzing dll 사용)
-        private List<OpenCvSharp.Point[]> decodeBarcode(Mat img, OpenCvSharp.Point[][] contours)
+        private Model decodeBarcode(Mat img, OpenCvSharp.Point[][] contours)
         {
-            Mat dst = new Mat();
-            Mat gray = new Mat();
-            Mat resizeImg = img;
-
             Mat decodeImg = new Mat();
-
-            List<OpenCvSharp.Point[]> contourList = new List<OpenCvSharp.Point[]>();
-            List<string> barcodes = new List<string>();
+            Model Con = new Model();
+            Con.Contour = new List<OpenCvSharp.Point[]>();
+            Con.Barcode = "";
 
             int boxwidth = Convert.ToInt32(txtSize.Text.Split(',')[0]);
             int boxheight = Convert.ToInt32(txtSize.Text.Split(',')[1]);
             int padding = Convert.ToInt32(txtPadding.Text);
+            int halfPadding = padding / 2;
+            int count = 0;
+            int contourCount = 0;
 
             ZXing.Result barcodeResult = null;
+            Console.WriteLine(contours.Count());
             //찾은 가장자리 정보를 이용하여 사각형 그리기
             foreach (OpenCvSharp.Point[] s in contours)
             {
-                double length = Cv2.ArcLength(s, true);
-                //RotatedRect rect = Cv2.MinAreaRect(contours[i]);
-                Rect rect = Cv2.BoundingRect(s);
-                if (Math.Abs(rect.Width - boxwidth) < padding || Math.Abs(rect.Width - boxheight) < padding)
+                try
                 {
+                    contourCount += 1;
+                    double length = Cv2.ArcLength(s, true);
+                    //RotatedRect rect = Cv2.MinAreaRect(contours[i]);
+                    Rect rect = Cv2.BoundingRect(s);
+                    rect.X = rect.X - halfPadding;
+                    rect.Y = rect.Y - halfPadding;
+                    rect.Width = rect.Width + padding;
+                    rect.Height = rect.Height + padding;
                     decodeImg = img.SubMat(rect);
-                    Mat barcodeImg = resizeBarcode(decodeImg);
-                    var barcode = OpenCvSharp.Extensions.BitmapConverter.ToBitmap(barcodeImg);
-
-                    try
+                    Mat barcodeImg = set.resizeBarcode(decodeImg);
+                    if(chkCapture.Checked) Cv2.ImWrite(@"E:\Project\연구과제\Barcode_Detect\BarcodeDetector\testImg\barcode" + contourCount.ToString() + ".jpg", barcodeImg);
+                    if (Math.Abs(rect.Width - boxwidth) < padding || Math.Abs(rect.Height - boxheight) < padding)
                     {
-                        barcodeResult = barcodeReader.Decode(barcode);
-                    }
-                    catch
-                    {
+                        decodeImg = img.SubMat(rect);
+                        barcodeImg = set.resizeBarcode(decodeImg);
+                        var barcode = OpenCvSharp.Extensions.BitmapConverter.ToBitmap(barcodeImg);
+                        try
+                        {
+                            barcodeResult = barcodeReader.Decode(barcode);
+                        }
+                        catch
+                        {
 
-                    }
+                        }
 
-                    if (barcodeResult != null)
-                    {
-                        contourList.Add(s);
-                        //barcodes.Add(barcodeResult.ToString().Trim());
+                        if (barcodeResult != null)
+                        {
+                            Con.Contour.Add(s);
+                            Con.Barcode += barcodeResult;
+                            count += 1;
+                        }
                     }
                 }
-            }
-            Cv2.ImWrite(@"E:\Project\연구과제\BarcodeDetector\BarcodeDetector\testImg\detectSqureimg.jpg", resizeImg);
+                catch
+                {
 
-            //Console.WriteLine(barcodes);
-            return contourList;
+                }
+            }
+            Con.searchQty = count;
+
+            return Con;
         }
 
         #endregion ==== 바코드 위치 찾기 ====
@@ -383,7 +371,7 @@ namespace BarcodeDetector
                 //RotatedRect rect = Cv2.MinAreaRect(contours[i]);
                 Rect rect = Cv2.BoundingRect(s);
                 decodeImg = img.SubMat(rect);
-                Mat barcodeImg = resizeBarcode(decodeImg);
+                Mat barcodeImg = set.resizeBarcode(decodeImg);
                 var barcode = OpenCvSharp.Extensions.BitmapConverter.ToBitmap(barcodeImg);
 
                 var barcodeResult = barcodeReader.Decode(barcode);
@@ -395,9 +383,12 @@ namespace BarcodeDetector
                     barcodeCount += 1;
                 }
             }
-            boxWidth = boxWidth / barcodeCount;
-            boxHeight = boxHeight / barcodeCount;
-            txtSize.Text = boxWidth.ToString() + "," + boxHeight.ToString();
+            if (barcodeCount != 0)
+            {
+                boxWidth = boxWidth / barcodeCount;
+                boxHeight = boxHeight / barcodeCount;
+                txtSize.Text = boxWidth.ToString() + "," + boxHeight.ToString();
+            }
         }
 
 
@@ -409,9 +400,12 @@ namespace BarcodeDetector
             }
         }
 
-        private void insertText(string text)
+        private void insertText(string str, TextBox txtBox)
         {
-            txtResult.AppendText(text + Environment.NewLine);
+            txtBox.Text = str + Environment.NewLine;
+            txtBox.Select(txtBox.Text.Length, 0);
+            txtBox.ScrollToCaret();
+
         }
 
         #endregion === 편의 기능 ===
